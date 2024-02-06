@@ -386,6 +386,7 @@ name = "unlock_excel"
 version = "0.1.0"
 dependencies = [
  "cfb",
+ "sha1",
  "zip",
 ]
 
