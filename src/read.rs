@@ -1,13 +1,13 @@
 use std::io::BufRead;
 
 use crate::error;
-use crate::error::VBAProjectStructure;
+use crate::error::UnlockResult;
 use crate::InMemStream;
 use vba_password::ProjectPassword;
 use vba_protection_state::ProjectProtectionState;
 use vba_visibility::ProjectVisibililyState;
 
-pub fn print_info(project: InMemStream) -> Result<(), VBAProjectStructure> {
+pub fn print_info(project: InMemStream) -> UnlockResult<()> {
     for line in project.lines().flatten() {
         if line.starts_with("CMG=") {
             let protection_state: ProjectProtectionState = line.parse()?;
@@ -79,8 +79,8 @@ mod vba_protection_state {
 pub mod vba_password {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/79685426-30fe-43cd-9cbf-7f161c3de7d8
     use super::decrypt;
+    use crate::consts::WORDS;
     use crate::error;
-    use crate::WORDS;
     use sha1::{Digest, Sha1};
     use std::{fmt::Display, str::FromStr};
 

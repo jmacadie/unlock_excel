@@ -4,52 +4,79 @@ mod consts;
 mod error;
 mod read;
 
-use cfb::{CompoundFile, Stream};
-use consts::WORDS;
-use error::UnlockResult;
+use clap::{Args, Parser, Subcommand};
 use std::io::{prelude::*, Cursor};
 
-use crate::error::UnlockError;
-use crate::read::print_info;
+use error::UnlockError;
+use error::UnlockResult;
+use read::print_info;
 
+use cfb::{CompoundFile, Stream};
 pub type InMemCFB = CompoundFile<Cursor<Vec<u8>>>;
 pub type InMemStream = Stream<Cursor<Vec<u8>>>;
 
-fn main() {
-    std::process::exit(real_main());
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// Mode to run in
+    #[command(subcommand)]
+    command: Commands,
 }
 
-fn real_main() -> i32 {
-    const PROJECT_PATH: &str = "/PROJECT";
+#[derive(Subcommand)]
+enum Commands {
+    /// Read the contents of the Excel file
+    Read(ReadArgs),
 
-    let args: Vec<_> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
-        return 1;
+    /// Update the file to remove all protection
+    Remove(RemoveArgs),
+}
+
+#[derive(Args)]
+struct ReadArgs {
+    /// Attempt to decode the SHA1 hash of the password
+    #[arg(short, long, default_value_t = false)]
+    decode: bool,
+
+    /// Excel file to read / unlock
+    filename: String,
+}
+
+#[derive(Args)]
+struct RemoveArgs {
+    /// Modify the file in-place, if not selected a new file will be generated and saved alongside
+    /// the original
+    #[arg(short, long, default_value_t = false)]
+    inplace: bool,
+
+    /// Excel file to read / unlock
+    filename: String,
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    match &cli.command {
+        Commands::Read(args) => {
+            let mut vba = match get_vba(&args.filename) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            let project = vba.open_stream(consts::PROJECT_PATH).unwrap();
+            if let Err(e) = print_info(project) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Remove(_inplace) => {
+            println!("Not yet built. Sorry");
+        }
     }
 
-    let mut cfb_file = match get_vba(&args[1]) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("{e}");
-            return 1;
-        }
-    };
-
-    let project = match cfb_file.open_stream(PROJECT_PATH) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Cannot open the Project Stream: {e}");
-            return 1;
-        }
-    };
-
-    if let Err(e) = print_info(project) {
-        eprintln!("{e}");
-        return 1;
-    }
-
-    0
+    std::process::exit(0);
 }
 
 fn get_vba(path: &str) -> UnlockResult<InMemCFB> {
@@ -58,7 +85,7 @@ fn get_vba(path: &str) -> UnlockResult<InMemCFB> {
 
     let mut archive = zip::ZipArchive::new(zipfile)?;
 
-    let Ok(mut file) = archive.by_name("xl/vbaProject.bin") else {
+    let Ok(mut file) = archive.by_name(consts::VBA_PATH) else {
         return Err(UnlockError::NoVBAFile);
     };
 

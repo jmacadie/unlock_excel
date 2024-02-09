@@ -2,6 +2,7 @@ use std::{fmt::Display, io, num::ParseIntError};
 
 pub type UnlockResult<T> = Result<T, UnlockError>;
 
+#[allow(clippy::module_name_repetitions)]
 pub enum UnlockError {
     FileOpen(io::Error),
     Zip(zip::result::ZipError),
@@ -19,6 +20,24 @@ impl From<io::Error> for UnlockError {
 impl From<zip::result::ZipError> for UnlockError {
     fn from(value: zip::result::ZipError) -> Self {
         Self::Zip(value)
+    }
+}
+
+impl From<VBAProtectionState> for UnlockError {
+    fn from(value: VBAProtectionState) -> Self {
+        Self::ProjectStructure(VBAProjectStructure::ProtectionState(value))
+    }
+}
+
+impl From<VBAPassword> for UnlockError {
+    fn from(value: VBAPassword) -> Self {
+        Self::ProjectStructure(VBAProjectStructure::Password(value))
+    }
+}
+
+impl From<VBAVisibility> for UnlockError {
+    fn from(value: VBAVisibility) -> Self {
+        Self::ProjectStructure(VBAProjectStructure::Visibility(value))
     }
 }
 
