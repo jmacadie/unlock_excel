@@ -7,7 +7,7 @@ use vba_password::ProjectPassword;
 use vba_protection_state::ProjectProtectionState;
 use vba_visibility::ProjectVisibililyState;
 
-pub fn print_info(project: InMemStream) -> UnlockResult<()> {
+pub fn print_info(project: InMemStream, decode: bool) -> UnlockResult<()> {
     for line in project.lines().flatten() {
         if line.starts_with("CMG=") {
             let protection_state: ProjectProtectionState = line.parse()?;
@@ -15,7 +15,15 @@ pub fn print_info(project: InMemStream) -> UnlockResult<()> {
         }
         if line.starts_with("DPB=") {
             let password: ProjectPassword = line.parse()?;
-            println!("{password}");
+            print!("{password}");
+            if decode {
+                password.crack_password().map_or_else(|| {
+                    println!("  Was unable to decode the password. Try removing the password, which always works");
+                }, |clear| {
+                    println!("  Decoded Password: {clear}");
+                });
+            }
+            println!();
         }
         if line.starts_with("GC=") {
             let visibility_state: ProjectVisibililyState = line.parse()?;
@@ -79,7 +87,6 @@ mod vba_protection_state {
 pub mod vba_password {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/79685426-30fe-43cd-9cbf-7f161c3de7d8
     use super::decrypt;
-    use crate::consts::WORDS;
     use crate::error;
     use sha1::{Digest, Sha1};
     use std::{fmt::Display, str::FromStr};
@@ -163,22 +170,6 @@ pub mod vba_password {
             Ok(Self::Hash(salt, hash))
         }
 
-        #[allow(dead_code)]
-        fn crack_password(&self) -> Option<String> {
-            if let Self::Hash(salt, hash) = self {
-                let mut hasher = Sha1::new();
-                for trial in WORDS {
-                    let mut salted: Vec<u8> = trial.as_bytes().to_owned();
-                    salted.extend_from_slice(salt);
-                    hasher.update(salted);
-                    if hasher.finalize_reset()[..] == *hash {
-                        return Some(trial.to_owned());
-                    }
-                }
-            }
-            None
-        }
-
         fn new_plain(data: &[u8], length: u32) -> Result<Self, error::VBAPasswordPlain> {
             let Ok(length) = usize::try_from(length) else {
                 return Err(error::VBAPasswordPlain::LengthToUsize(length));
@@ -191,6 +182,22 @@ pub mod vba_password {
             }
             let password = String::from_utf8_lossy(&data[0..(length - 2)]).to_string();
             Ok(Self::PlainText(password))
+        }
+
+        pub fn crack_password(&self) -> Option<String> {
+            if let Self::Hash(salt, hash) = self {
+                let words = include_str!("password.lst");
+                let mut hasher = Sha1::new();
+                for trial in words.lines() {
+                    let mut salted: Vec<u8> = trial.as_bytes().to_owned();
+                    salted.extend_from_slice(salt);
+                    hasher.update(salted);
+                    if hasher.finalize_reset()[..] == *hash {
+                        return Some(trial.to_owned());
+                    }
+                }
+            }
+            None
         }
     }
 

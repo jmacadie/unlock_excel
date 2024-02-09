@@ -60,7 +60,7 @@ fn main() -> UnlockResult<()> {
         Commands::Read(args) => {
             let mut vba = get_vba(&args.filename)?;
             let project = vba.open_stream(consts::PROJECT_PATH)?;
-            print_info(project)?;
+            print_info(project, args.decode)?;
         }
         Commands::Remove(_inplace) => {
             println!("Not yet built. Sorry");
