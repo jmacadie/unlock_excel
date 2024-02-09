@@ -53,30 +53,21 @@ struct RemoveArgs {
     filename: String,
 }
 
-fn main() {
+fn main() -> UnlockResult<()> {
     let cli = Cli::parse();
 
     match &cli.command {
         Commands::Read(args) => {
-            let mut vba = match get_vba(&args.filename) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            };
-            let project = vba.open_stream(consts::PROJECT_PATH).unwrap();
-            if let Err(e) = print_info(project) {
-                eprintln!("{e}");
-                std::process::exit(1);
-            }
+            let mut vba = get_vba(&args.filename)?;
+            let project = vba.open_stream(consts::PROJECT_PATH)?;
+            print_info(project)?;
         }
         Commands::Remove(_inplace) => {
             println!("Not yet built. Sorry");
         }
     }
 
-    std::process::exit(0);
+    Ok(())
 }
 
 fn get_vba(path: &str) -> UnlockResult<InMemCFB> {

@@ -1,4 +1,8 @@
-use std::{fmt::Display, io, num::ParseIntError};
+use std::{
+    fmt::{Debug, Display},
+    io,
+    num::ParseIntError,
+};
 
 pub type UnlockResult<T> = Result<T, UnlockError>;
 
@@ -59,6 +63,12 @@ impl Display for UnlockError {
             ),
             Self::ProjectStructure(e) => write!(f, "{e}"),
         }
+    }
+}
+
+impl Debug for UnlockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
