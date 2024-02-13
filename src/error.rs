@@ -9,6 +9,8 @@ pub type UnlockResult<T> = Result<T, UnlockError>;
 #[allow(clippy::module_name_repetitions)]
 pub enum UnlockError {
     FileOpen(io::Error),
+    NotExcel(String),
+    XlsX(String),
     Zip(zip::result::ZipError),
     NoVBAFile,
     CFBOpen(io::Error),
@@ -49,6 +51,11 @@ impl Display for UnlockError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::FileOpen(e) => write!(f, "{e}"),
+            Self::NotExcel(file) => write!(f, "{file} is not an Excel file. Try harder"),
+            Self::XlsX(file) => write!(
+                f,
+                "{file} is Excel's format for files with no VBA. There is nothing to operate on"
+            ),
             Self::Zip(e) => write!(
                 f,
                 "Problem with the zip representation of the supplied Excel file: {e}"

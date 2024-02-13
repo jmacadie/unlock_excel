@@ -2,12 +2,15 @@ use std::io::BufRead;
 
 use crate::error;
 use crate::error::UnlockResult;
-use crate::InMemStream;
+use cfb::Stream;
 use vba_password::ProjectPassword;
 use vba_protection_state::ProjectProtectionState;
 use vba_visibility::ProjectVisibililyState;
 
-pub fn print_info(project: InMemStream, decode: bool) -> UnlockResult<()> {
+pub fn print_info<T: std::io::Read + std::io::Seek>(
+    project: Stream<T>,
+    decode: bool,
+) -> UnlockResult<()> {
     for line in project.lines().flatten() {
         if line.starts_with("CMG=") {
             let protection_state: ProjectProtectionState = line.parse()?;

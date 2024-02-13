@@ -4,16 +4,13 @@ mod consts;
 mod error;
 mod read;
 
+use cfb::CompoundFile;
 use clap::{Args, Parser, Subcommand};
 use std::io::{prelude::*, Cursor};
 
-use error::UnlockError;
-use error::UnlockResult;
-use read::print_info;
-
-use cfb::{CompoundFile, Stream};
-pub type InMemCFB = CompoundFile<Cursor<Vec<u8>>>;
-pub type InMemStream = Stream<Cursor<Vec<u8>>>;
+use crate::error::UnlockError;
+use crate::error::UnlockResult;
+use crate::read::print_info;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -58,9 +55,47 @@ fn main() -> UnlockResult<()> {
 
     match &cli.command {
         Commands::Read(args) => {
-            let mut vba = get_vba(&args.filename)?;
-            let project = vba.open_stream(consts::PROJECT_PATH)?;
-            print_info(project, args.decode)?;
+            let file_and_path = std::path::Path::new(&args.filename);
+            let extension = file_and_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(str::to_lowercase);
+
+            match extension.as_deref() {
+                Some("xls") => {
+                    let mut file = cfb::open(file_and_path).map_err(UnlockError::CFBOpen)?;
+                    let project = file.open_stream(consts::CFB_VBA_PATH)?;
+                    print_info(project, args.decode)?;
+                }
+                Some("xlsm" | "xlsb") => {
+                    let zipfile = std::fs::File::open(file_and_path)?;
+                    let mut archive = zip::ZipArchive::new(zipfile)?;
+                    let Ok(mut file) = archive.by_name(consts::ZIP_VBA_PATH) else {
+                        return Err(UnlockError::NoVBAFile);
+                    };
+
+                    // Read the uncompressed bytes of the vbaProject.bin file into an in-memory cursor
+                    // Need this as ZipFile does not implement Seek, so we cannot call open_stream
+                    // on a CompoundFile that is built directly off the ZipFile
+                    let mut buffer = Vec::with_capacity(1024);
+                    let _ = file.read_to_end(&mut buffer);
+                    let raw = Cursor::new(buffer);
+
+                    let mut vba = CompoundFile::open(raw).map_err(UnlockError::CFBOpen)?;
+                    let project = vba.open_stream(consts::PROJECT_PATH)?;
+                    print_info(project, args.decode)?;
+                }
+                Some("xlsx") => {
+                    return Err(UnlockError::XlsX(
+                        file_and_path.to_string_lossy().to_string(),
+                    ))
+                }
+                _ => {
+                    return Err(UnlockError::NotExcel(
+                        file_and_path.to_string_lossy().to_string(),
+                    ))
+                }
+            }
         }
         Commands::Remove(_inplace) => {
             println!("Not yet built. Sorry");
@@ -68,22 +103,4 @@ fn main() -> UnlockResult<()> {
     }
 
     Ok(())
-}
-
-fn get_vba(path: &str) -> UnlockResult<InMemCFB> {
-    let fname = std::path::Path::new(path);
-    let zipfile = std::fs::File::open(fname)?;
-
-    let mut archive = zip::ZipArchive::new(zipfile)?;
-
-    let Ok(mut file) = archive.by_name(consts::VBA_PATH) else {
-        return Err(UnlockError::NoVBAFile);
-    };
-
-    // Read the uncompressed bytes of the vbaProject.bin file into an in-memory cursor
-    let mut buffer = Vec::with_capacity(1024);
-    let _ = file.read_to_end(&mut buffer);
-    let raw = std::io::Cursor::new(buffer);
-
-    CompoundFile::open(raw).map_err(UnlockError::CFBOpen)
 }
