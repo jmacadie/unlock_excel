@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 authors = ["James MacAdie"]
 description = "Small command line utility to inspect or remove the VBA protection status of Excel files"
+licence = "MIT"
+homepage = "https://github.com/jmacadie/unlock_excel"
+repository = "https://github.com/jmacadie/unlock_excel"
+readme = "README.md"
+keywords = ["Excel", "VBA", "password"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 cfb = "0.9.0"
