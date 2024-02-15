@@ -11,7 +11,7 @@ pub fn print_info<T: std::io::Read + std::io::Seek>(
     project: Stream<T>,
     decode: bool,
 ) -> UnlockResult<()> {
-    for line in project.lines().flatten() {
+    for line in project.lines().map_while(Result::ok) {
         if line.starts_with("CMG=") {
             let protection_state: ProjectProtectionState = line.parse()?;
             println!("{protection_state}");
@@ -115,11 +115,8 @@ pub mod vba_password {
     }
 
     impl ProjectPassword {
-        pub fn is_hash(&self) -> bool {
-            match self {
-                Self::Hash(_, _) => true,
-                _ => false,
-            }
+        pub const fn is_hash(&self) -> bool {
+            matches!(self, Self::Hash(_, _))
         }
 
         fn new_none(data: &[u8]) -> Result<Self, error::VBAPasswordNone> {

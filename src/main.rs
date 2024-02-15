@@ -5,11 +5,10 @@ mod error;
 mod read;
 mod remove;
 
-use cfb::CompoundFile;
 use clap::{Args, Parser, Subcommand};
+use std::fs::File;
 use std::io::{prelude::*, Cursor};
 use std::path::{Path, PathBuf};
-use zip::ZipWriter;
 
 use crate::error::UnlockError;
 use crate::error::UnlockResult;
@@ -68,7 +67,7 @@ fn main() -> UnlockResult<()> {
             print_info(project, args.decode)?;
         }
         (Commands::Read(args), XlType::New) => {
-            let zipfile = std::fs::File::open(filename)?;
+            let zipfile = File::open(filename)?;
             let mut archive = zip::ZipArchive::new(zipfile)?;
             let Ok(mut vba_file) = archive.by_name(consts::ZIP_VBA_PATH) else {
                 return Err(UnlockError::NoVBAFile);
@@ -81,7 +80,7 @@ fn main() -> UnlockResult<()> {
             let _ = vba_file.read_to_end(&mut buffer);
             let vba_raw = Cursor::new(buffer);
 
-            let mut vba = CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
+            let mut vba = cfb::CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
             let project = vba.open_stream(consts::PROJECT_PATH)?;
             print_info(project, args.decode)?;
         }
@@ -99,7 +98,7 @@ fn main() -> UnlockResult<()> {
             project.write_all(&replacement)?;
         }
         (Commands::Remove(args), XlType::New) => {
-            let zipfile = std::fs::File::open(filename)?;
+            let zipfile = File::open(filename)?;
             let mut archive = zip::ZipArchive::new(zipfile)?;
             let Ok(mut vba_file) = archive.by_name(consts::ZIP_VBA_PATH) else {
                 return Err(UnlockError::NoVBAFile);
@@ -115,7 +114,7 @@ fn main() -> UnlockResult<()> {
 
             // Replace the VBA CFB file with an unlocked project
             // Strip back out to a Vec of bytes as this is what's needed to write to the zip file
-            let mut vba = CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
+            let mut vba = cfb::CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
             let project = vba.open_stream(consts::PROJECT_PATH)?;
             let replacement = remove::unlocked_project(project)?;
             let mut project = vba.create_stream(consts::PROJECT_PATH)?;
@@ -125,8 +124,8 @@ fn main() -> UnlockResult<()> {
 
             // Open a new, empty archive for writing to
             let new_filename = replacement_filename(filename)?;
-            let new_file = std::fs::File::create(&new_filename)?;
-            let mut new_archive = ZipWriter::new(new_file);
+            let new_file = File::create(&new_filename)?;
+            let mut new_archive = zip::ZipWriter::new(new_file);
 
             // Loop through the original archive:
             //  - Write the VBA file from our updated vec of bytes
