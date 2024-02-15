@@ -35,6 +35,22 @@ appended to the name. If you wish you update the file in place, pass the `-i`
 flag:
 `$ ./unlock_excel remove -i FILENAME`
 
+## Credits
+
+Inspiration for writing this is due to [Didier Stevens](https://blog.didierstevens.com/2020/07/20/cracking-vba-project-passwords/).
+He doesn't link to the code in that post, but it can be found [here](https://github.com/DidierStevens/DidierStevensSuite/blob/master/plugin_vbaproject.py)
+
+## Roadmap
+
+The following is a list of things that may get added in the future:
+- Better output format. The current output is a little raw, I've not given it much thought
+- Remove sheet protection as well. It's not too hard to do
+- Improve the internal password decryption. For one thing we could use Rayon to
+parallelise the un-hashing attempts and try more options. Feels like we're
+re-inventing password cracking software, which is likely not the way to go
+for this little utility
+- main is a little gnarly, ideally I'd clean this up
+
 ## WARNING
 
 This utility is designed only to give the user access to files that they already
