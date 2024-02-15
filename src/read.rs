@@ -19,7 +19,7 @@ pub fn print_info<T: std::io::Read + std::io::Seek>(
         if line.starts_with("DPB=") {
             let password: ProjectPassword = line.parse()?;
             print!("{password}");
-            if decode {
+            if password.is_hash() && decode {
                 password.crack_password().map_or_else(|| {
                     println!("  Was unable to decode the password. Try removing the password, which always works");
                 }, |clear| {
@@ -115,6 +115,13 @@ pub mod vba_password {
     }
 
     impl ProjectPassword {
+        pub fn is_hash(&self) -> bool {
+            match self {
+                Self::Hash(_, _) => true,
+                _ => false,
+            }
+        }
+
         fn new_none(data: &[u8]) -> Result<Self, error::VBAPasswordNone> {
             if data.len() != 1 {
                 return Err(error::VBAPasswordNone::DataLength(data.len()));
