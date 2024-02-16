@@ -122,7 +122,7 @@ mod vba_protection_state {
     }
 }
 
-pub mod vba_password {
+mod vba_password {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/79685426-30fe-43cd-9cbf-7f161c3de7d8
     use super::decrypt;
     use crate::error;
@@ -268,7 +268,7 @@ pub mod vba_password {
     }
 }
 
-pub mod vba_visibility {
+mod vba_visibility {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/690c96e8-e862-497f-bb7d-5eacf4dc742a
     use super::decrypt;
     use crate::error;
