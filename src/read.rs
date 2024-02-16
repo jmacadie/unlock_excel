@@ -1,13 +1,48 @@
-use std::io::BufRead;
+use std::fs::File;
+use std::io::{BufRead, Cursor, Read};
+use std::path::Path;
 
+use crate::consts;
 use crate::error;
+use crate::error::UnlockError;
 use crate::error::UnlockResult;
 use cfb::Stream;
 use vba_password::ProjectPassword;
 use vba_protection_state::ProjectProtectionState;
 use vba_visibility::ProjectVisibililyState;
+use zip::ZipArchive;
 
-pub fn print_info<T: std::io::Read + std::io::Seek>(
+pub fn xl_97(filename: &Path, decode: bool) -> UnlockResult<()> {
+    let mut file = cfb::open(filename).map_err(UnlockError::CFBOpen)?;
+    let project = file.open_stream(consts::CFB_VBA_PATH)?;
+    print_info(project, decode)
+}
+
+pub fn xl(filename: &Path, decode: bool) -> UnlockResult<()> {
+    let zipfile = File::open(filename)?;
+    let mut archive = zip::ZipArchive::new(zipfile)?;
+    let vba_raw = zip_to_raw_vba(&mut archive)?;
+    let mut vba_cfb = cfb::CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
+    let project = vba_cfb.open_stream(consts::PROJECT_PATH)?;
+    print_info(project, decode)
+}
+
+pub fn zip_to_raw_vba<R: std::io::Read + std::io::Seek>(
+    zip: &mut ZipArchive<R>,
+) -> UnlockResult<Cursor<Vec<u8>>> {
+    let Ok(mut vba_file) = zip.by_name(consts::ZIP_VBA_PATH) else {
+        return Err(UnlockError::NoVBAFile);
+    };
+
+    // Read the uncompressed bytes of the vbaProject.bin file into an in-memory cursor
+    // Need this as ZipFile does not implement Seek, so we cannot call open_stream
+    // on a CompoundFile that is built directly off the ZipFile
+    let mut buffer = Vec::with_capacity(1024);
+    let _ = vba_file.read_to_end(&mut buffer);
+    Ok(Cursor::new(buffer))
+}
+
+fn print_info<T: std::io::Read + std::io::Seek>(
     project: Stream<T>,
     decode: bool,
 ) -> UnlockResult<()> {

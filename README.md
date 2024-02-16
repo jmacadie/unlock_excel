@@ -49,7 +49,6 @@ The following is a list of things that may get added in the future:
 parallelise the un-hashing attempts and try more options. Feels like we're
 re-inventing password cracking software, which is likely not the way to go
 for this little utility
-- main is a little gnarly, ideally I'd clean this up
 
 ## WARNING
 
