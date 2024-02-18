@@ -3,7 +3,6 @@ use std::io::{BufRead, Cursor, Read};
 use std::path::Path;
 
 use crate::consts;
-use crate::error;
 use crate::error::UnlockError;
 use crate::error::UnlockResult;
 use cfb::Stream;
@@ -73,8 +72,8 @@ fn print_info<T: std::io::Read + std::io::Seek>(
 
 mod vba_protection_state {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/55e770e2-e1a4-4d1c-a8a4-dcfca27d6663
-    use super::decrypt;
     use crate::error::VBAProtectionState;
+    use crate::ovba::algorithms::data_encryption;
     use std::{fmt::Display, str::FromStr};
 
     pub struct ProjectProtectionState {
@@ -88,10 +87,7 @@ mod vba_protection_state {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("CMG=\"").trim_end_matches('"');
-            let (data, length) = decrypt(hex_str)?;
-            if length != 4 {
-                return Err(VBAProtectionState::Length(length));
-            }
+            let data = data_encryption::decrypt_str(hex_str)?;
             if data.len() != 4 {
                 return Err(VBAProtectionState::DataLength(data.len()));
             }
@@ -124,8 +120,8 @@ mod vba_protection_state {
 
 mod vba_password {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/79685426-30fe-43cd-9cbf-7f161c3de7d8
-    use super::decrypt;
     use crate::error;
+    use crate::ovba::algorithms::data_encryption;
     use sha1::{Digest, Sha1};
     use std::{fmt::Display, str::FromStr};
 
@@ -140,11 +136,12 @@ mod vba_password {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("DPB=\"").trim_end_matches('"');
-            let (data, length) = decrypt(hex_str)?;
-            Ok(match length {
+            let data = data_encryption::decrypt_str(hex_str)?;
+            Ok(match data.len() {
+                0 => return Err(error::VBAPassword::NoData),
                 1 => Self::new_none(&data)?,
                 29 => Self::new_hash(&data)?,
-                l => Self::new_plain(&data, l)?,
+                _ => Self::new_plain(&data)?,
             })
         }
     }
@@ -155,9 +152,6 @@ mod vba_password {
         }
 
         fn new_none(data: &[u8]) -> Result<Self, error::VBAPasswordNone> {
-            if data.len() != 1 {
-                return Err(error::VBAPasswordNone::DataLength(data.len()));
-            }
             if data.first() != Some(0x00).as_ref() {
                 return Err(error::VBAPasswordNone::NotNull(data[0]));
             }
@@ -166,9 +160,6 @@ mod vba_password {
 
         fn new_hash(data: &[u8]) -> Result<Self, error::VBAPasswordHash> {
             // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/9d9f81e6-f92e-4338-a242-d38c1fcceed6
-            if data.len() != 29 {
-                return Err(error::VBAPasswordHash::DataLength(data.len()));
-            }
             if data.first() != Some(0xff).as_ref() {
                 return Err(error::VBAPasswordHash::Reserved(data[0]));
             }
@@ -212,17 +203,15 @@ mod vba_password {
             Ok(Self::Hash(salt, hash))
         }
 
-        fn new_plain(data: &[u8], length: u32) -> Result<Self, error::VBAPasswordPlain> {
-            let Ok(length) = usize::try_from(length) else {
-                return Err(error::VBAPasswordPlain::LengthToUsize(length));
-            };
-            if data.len() != length {
-                return Err(error::VBAPasswordPlain::DataLength(data.len(), length));
-            }
+        fn new_plain(data: &[u8]) -> Result<Self, error::VBAPasswordPlain> {
             if data.last() != Some(0x00).as_ref() {
-                return Err(error::VBAPasswordPlain::Terminator(data[length - 1]));
+                return Err(error::VBAPasswordPlain::Terminator(
+                    *data
+                        .last()
+                        .expect("Cannot construct a plain password with zero length data"),
+                ));
             }
-            let password = String::from_utf8_lossy(&data[0..(length - 2)]).to_string();
+            let password = String::from_utf8_lossy(&data[0..(data.len() - 1)]).to_string();
             Ok(Self::PlainText(password))
         }
 
@@ -270,8 +259,8 @@ mod vba_password {
 
 mod vba_visibility {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/690c96e8-e862-497f-bb7d-5eacf4dc742a
-    use super::decrypt;
     use crate::error;
+    use crate::ovba::algorithms::data_encryption;
     use std::{fmt::Display, str::FromStr};
 
     pub enum ProjectVisibililyState {
@@ -284,10 +273,7 @@ mod vba_visibility {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("GC=\"").trim_end_matches('"');
-            let (data, length) = decrypt(hex_str)?;
-            if length != 1 {
-                return Err(error::VBAVisibility::Length(length));
-            }
+            let data = data_encryption::decrypt_str(hex_str)?;
             if data.len() != 1 {
                 return Err(error::VBAVisibility::DataLength(data.len()));
             }
@@ -310,66 +296,4 @@ mod vba_visibility {
             Ok(())
         }
     }
-}
-
-fn decrypt(hex: &str) -> Result<(Vec<u8>, u32), error::VBADecrypt> {
-    // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a2ad3aa7-e180-4ccb-8511-7e0eb49a0ad9
-    // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/7e9d84fe-86e3-46d6-aaff-8388e72c0168
-
-    if hex.bytes().any(|x| !x.is_ascii_hexdigit()) {
-        return Err(error::VBADecrypt::InvalidHex(hex.to_owned()));
-    }
-
-    let seed = u8::from_str_radix(&hex[0..2], 16)?;
-    let version_enc = u8::from_str_radix(&hex[2..4], 16)?;
-    let project_key_enc = u8::from_str_radix(&hex[4..6], 16)?;
-
-    let version = seed ^ version_enc;
-    if version != 2 {
-        return Err(error::VBADecrypt::Version(version));
-    }
-    let project_key = seed ^ project_key_enc;
-    let ignored_length = ((seed & 6) >> 1).into();
-
-    let mut unencrypted_byte_1 = project_key;
-    let mut encrypted_byte_1 = project_key_enc;
-    let mut encrypted_byte_2 = version_enc;
-
-    // Convert remaining string into a u8 (byte) iterator
-    let data_bytes = hex[6..].as_bytes().chunks_exact(2).map(|x| {
-        let upper = match x[0] {
-            val if val.is_ascii_digit() => val - b'0',
-            val if val.is_ascii_lowercase() => val - b'a' + 10,
-            val if val.is_ascii_uppercase() => val - b'A' + 10,
-            _ => unreachable!(),
-        };
-        let lower = match x[1] {
-            val if val.is_ascii_digit() => val - b'0',
-            val if val.is_ascii_lowercase() => val - b'a' + 10,
-            val if val.is_ascii_uppercase() => val - b'A' + 10,
-            _ => unreachable!(),
-        };
-        (upper << 4) | lower
-    });
-
-    // Generate the length & data
-    let mut data = Vec::new();
-    let mut length = 0;
-    for (i, byte_enc) in data_bytes.enumerate() {
-        let byte = byte_enc ^ (encrypted_byte_2 + unencrypted_byte_1);
-        encrypted_byte_2 = encrypted_byte_1;
-        encrypted_byte_1 = byte_enc;
-        unencrypted_byte_1 = byte;
-        match i {
-            x if x < ignored_length => (), // Ignore these bytes
-            x if x < ignored_length + 4 => {
-                let b = u32::from(byte);
-                let shift = 4 * (x - ignored_length);
-                length |= b << shift;
-            }
-            _ => data.push(byte),
-        }
-    }
-
-    Ok((data, length))
 }

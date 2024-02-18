@@ -113,10 +113,9 @@ impl From<VBAVisibility> for VBAProjectStructure {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAProtectionState {
     Decrypt(VBADecrypt),
-    Length(u32),
     DataLength(usize),
     ReservedBits([u8; 4]),
 }
@@ -125,7 +124,6 @@ impl Display for VBAProtectionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decrypt(e) => write!(f, "{e}"),
-            Self::Length(l) => write!(f, "The length parameter for Data Encryption of the VBA Project Protection State MUST be 4, not {l}"),
             Self::DataLength(l) => write!(f, "The Data array for Data Encryption of the VBA Project Protection State SHOULD be 4 bytes, not {l} bytes"),
             Self::ReservedBits(data) => write!(f, "The upper 29 bits of data are reserved and MUST all be 0. Data decodeded to {:08b}{:08b}{:08b}{:08b}", data[0], data[1], data[2], data[3]),
         }
@@ -138,12 +136,13 @@ impl From<VBADecrypt> for VBAProtectionState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAPassword {
     Decrypt(VBADecrypt),
     None(VBAPasswordNone),
     Hash(VBAPasswordHash),
     PlainText(VBAPasswordPlain),
+    NoData,
 }
 
 impl Display for VBAPassword {
@@ -153,6 +152,7 @@ impl Display for VBAPassword {
             Self::None(e) => write!(f, "{e}"),
             Self::Hash(e) => write!(f, "{e}"),
             Self::PlainText(e) => write!(f, "{e}"),
+            Self::NoData => write!(f, "The decrypted password had no data"),
         }
     }
 }
@@ -181,19 +181,14 @@ impl From<VBAPasswordPlain> for VBAPassword {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAPasswordNone {
-    DataLength(usize),
     NotNull(u8),
 }
 
 impl Display for VBAPasswordNone {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DataLength(l) => write!(
-                f,
-                "The data length for a VBA project without a password MUST be 1, not {l}"
-            ),
             Self::NotNull(b) => write!(
                 f,
                 "The data value for a VBA project without a password MUST be 0x00, not 0x{b:02x}"
@@ -202,9 +197,8 @@ impl Display for VBAPasswordNone {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAPasswordHash {
-    DataLength(usize),
     Reserved(u8),
     Terminator(u8),
     SaltNull([u8; 4], usize),
@@ -214,7 +208,6 @@ pub enum VBAPasswordHash {
 impl Display for VBAPasswordHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DataLength(l) => write!(f, "The length of the VBA password hash data structure MUST be 29, not {l}"),
             Self::Reserved(b) => write!(f, "The first byte of the VBA password hash data structure is reserved and MUST be 0xff, not 0x{b:02x}"),
             Self::Terminator(b) => write!(f, "The final byte of the VBA password hash data structure is the terminator and MUST be 0x00, not 0x{b:02x}"),
             Self::SaltNull(data, i) => write!(f, "The byte in position {i} of the salt {data:?} is being replaced with a null. It should have a value of 1 before update"),
@@ -223,27 +216,25 @@ impl Display for VBAPasswordHash {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAPasswordPlain {
-    LengthToUsize(u32),
-    DataLength(usize, usize),
     Terminator(u8),
 }
 
 impl Display for VBAPasswordPlain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::LengthToUsize(_) => write!(f, "Could not convert the length to a usize (to index into the data array). This should never happen!"),
-            Self::DataLength(dl, l) => write!(f, "The length of the decrypted plain-text password {dl}, does not match the decrypted length {l}. Values cannot be trusted"),
-            Self::Terminator(b) => write!(f, "The plain-text password MUST be null terminated. We got 0x{b:02x}"),
+            Self::Terminator(b) => write!(
+                f,
+                "The plain-text password MUST be null terminated. We got 0x{b:02x}"
+            ),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBAVisibility {
     Decrypt(VBADecrypt),
-    Length(u32),
     DataLength(usize),
     InvalidState(u8),
 }
@@ -252,7 +243,6 @@ impl Display for VBAVisibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decrypt(e) => write!(f, "{e}"),
-            Self::Length(l) => write!(f, "VBA Visibility should decrypt to a length of 1, not {l}"),
             Self::DataLength(l) => write!(
                 f,
                 "VBA Visibility should decrypt to a data length of 1, not {l}"
@@ -271,10 +261,12 @@ impl From<VBADecrypt> for VBAVisibility {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum VBADecrypt {
     InvalidHex(String),
+    TooShort(String),
     Version(u8),
+    LengthMismatch(u32, u32),
 }
 
 impl From<ParseIntError> for VBADecrypt {
@@ -290,9 +282,15 @@ impl Display for VBADecrypt {
                 f,
                 "Cannot apply VBA data decryption as supplied value is not valid hex: {s}"
             ),
+            Self::TooShort(s) => write!(f, "The hex string {s} is too short to be decrypted"),
             Self::Version(v) => {
-                writeln!(f, "VBA Data Encryption Version MUST be 2 according to the spec: https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/7e9d84fe-86e3-46d6-aaff-8388e72c0168")?;
-                writeln!(f, "Got {v}")
+                write!(
+                    f,
+                    "VBA Data Encryption Version MUST be 2 according to the spec, not {v}"
+                )
+            }
+            Self::LengthMismatch(length, data) => {
+                write!(f, "The length of the decrypted data: {data} does not match decrypted length: {length}")
             }
         }
     }
