@@ -1,6 +1,6 @@
-/// VBA reversible encryption algorithm
-///
-/// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a02dfe4e-3c9f-45a4-8f14-f2f2d44fa063)
+//! VBA reversible encryption algorithm
+//!
+//! Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a02dfe4e-3c9f-45a4-8f14-f2f2d44fa063)
 use std::{fmt::Write, ops::Deref, str::FromStr};
 
 use crate::error;
@@ -36,6 +36,7 @@ impl FromStr for Data {
     }
 }
 
+// TODO: Remove? This is not a smart pointer
 impl Deref for Data {
     type Target = Vec<u8>;
 
@@ -63,10 +64,10 @@ impl Deref for Data {
 /// length parameter
 pub fn decrypt_str(hex: &str) -> Result<Data, error::VBADecrypt> {
     let data: Data = hex.parse()?;
-    decrypt(&data)
+    decrypt(&data.0)
 }
 
-/// Apply VBA decryption algorithm to a vector of bytes of encrypted data
+/// Apply VBA decryption algorithm to a slice of bytes of encrypted data
 ///
 /// # Reference
 /// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/7e9d84fe-86e3-46d6-aaff-8388e72c0168)
@@ -82,9 +83,9 @@ pub fn decrypt_str(hex: &str) -> Result<Data, error::VBADecrypt> {
 /// MUST be 2
 /// - the length of the decrypted data does not match the decrypted
 /// length parameter
-pub fn decrypt(encrypted_data: &Data) -> Result<Data, error::VBADecrypt> {
+pub fn decrypt(encrypted_data: &[u8]) -> Result<Data, error::VBADecrypt> {
     if encrypted_data.len() < 8 {
-        // 3 for seed, version & project key + O ignored + 4 length + 1 data
+        // 3 for seed, version & project key + 0 ignored + 4 length + 1 data
         let string = encrypted_data.iter().fold(String::new(), |mut output, b| {
             let _ = write!(output, "{b:02x}");
             output
@@ -111,7 +112,7 @@ pub fn decrypt(encrypted_data: &Data) -> Result<Data, error::VBADecrypt> {
     let mut data = Vec::new();
     let mut length = 0;
     for (i, byte_enc) in encrypted_data[3..].iter().enumerate() {
-        let byte = byte_enc ^ (encrypted_byte_2 + unencrypted_byte_1);
+        let byte = byte_enc ^ (encrypted_byte_2.wrapping_add(unencrypted_byte_1));
         encrypted_byte_2 = encrypted_byte_1;
         encrypted_byte_1 = *byte_enc;
         unencrypted_byte_1 = byte;
@@ -136,14 +137,18 @@ pub fn decrypt(encrypted_data: &Data) -> Result<Data, error::VBADecrypt> {
 }
 
 #[allow(dead_code)]
+/// Apply VBA encryption algorithm to a slice of bytes of data
+///
+/// # Reference
+/// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/1ad481e0-7df4-4cac-a9a4-9c29a1340123)
 pub fn encrypt(seed: u8, project_key: u8, data: &[u8]) -> Data {
-    // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/1ad481e0-7df4-4cac-a9a4-9c29a1340123
     const VERSION: u8 = 2;
     let version_enc = seed ^ VERSION;
     let project_key_enc = seed ^ project_key;
     let ignored_length = (seed & 6) >> 1;
 
-    let mut encrypted_data = Vec::new();
+    let encrypted_length = 3 + usize::from(ignored_length) + 4 + data.len();
+    let mut encrypted_data = Vec::with_capacity(encrypted_length);
     encrypted_data.push(seed);
     encrypted_data.push(version_enc);
     encrypted_data.push(project_key_enc);
@@ -152,35 +157,21 @@ pub fn encrypt(seed: u8, project_key: u8, data: &[u8]) -> Data {
     let mut encrypted_byte_1 = project_key_enc;
     let mut encrypted_byte_2 = version_enc;
 
-    for _ in 0..ignored_length {
-        let temp = 0; // spec says any (assume random) but want to be deterministic
-        let byte_enc = temp ^ (encrypted_byte_2 + unencrypted_byte_1);
-        encrypted_data.push(byte_enc);
-        encrypted_byte_2 = encrypted_byte_1;
-        encrypted_byte_1 = byte_enc;
-        unencrypted_byte_1 = temp;
-    }
-
-    let length = data.len();
     // Possible trucation Ok as the spec for the algorithm only has a 4 byte integer for length
     #[allow(clippy::cast_possible_truncation)]
-    let mut temp = length as u32;
-    for _ in 0..4 {
-        let byte = (temp & 0xff) as u8;
-        let byte_enc = byte ^ (encrypted_byte_2 + unencrypted_byte_1);
+    let length = data.len() as u32;
+
+    for byte in (0..ignored_length)
+        // spec says any (assume random), but want to be deterministic
+        .map(|i| (i * 0x0f) ^ 0xa9)
+        .chain(length.to_le_bytes())
+        .chain(data.iter().copied())
+    {
+        let byte_enc = byte ^ (encrypted_byte_2.wrapping_add(unencrypted_byte_1));
         encrypted_data.push(byte_enc);
         encrypted_byte_2 = encrypted_byte_1;
         encrypted_byte_1 = byte_enc;
         unencrypted_byte_1 = byte;
-        temp >>= 4;
-    }
-
-    for data_byte in data {
-        let byte_enc = data_byte ^ (encrypted_byte_2 + unencrypted_byte_1);
-        encrypted_data.push(byte_enc);
-        encrypted_byte_2 = encrypted_byte_1;
-        encrypted_byte_1 = byte_enc;
-        unencrypted_byte_1 = *data_byte;
     }
 
     Data(encrypted_data)
@@ -227,5 +218,43 @@ mod tests {
             Err(error::VBADecrypt::Version(0x01 ^ 0x23)),
             decrypt_str(test)
         );
+    }
+
+    #[test]
+    fn decrypt_data_length_mismatch() {
+        let test = "1113eb02fa02fa6d27";
+        assert_eq!(
+            Err(error::VBADecrypt::LengthMismatch(2, 15)),
+            decrypt_str(test)
+        );
+    }
+
+    #[test]
+    fn encrypt_and_decrypt() {
+        let raw =
+            b"When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow.";
+        let enc = encrypt(0x0c, 0x9f, raw);
+        let dec = decrypt(&enc).unwrap();
+        assert_eq!(Vec::from(raw), dec.0);
+    }
+
+    #[test]
+    fn upper_and_lowercase_hex() {
+        let raw = b"It was a bright cold day in April, and the clocks were striking thirteen.";
+        let enc = encrypt(0x99, 0xa1, raw);
+
+        let upper = enc.0.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02X}");
+            s
+        });
+        let dec = decrypt_str(&upper).unwrap();
+        assert_eq!(Vec::from(raw), dec.0);
+
+        let lower = enc.0.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        });
+        let dec = decrypt_str(&lower).unwrap();
+        assert_eq!(Vec::from(raw), dec.0);
     }
 }
