@@ -72,7 +72,7 @@ fn print_info<T: std::io::Read + std::io::Seek>(
 
 mod vba_protection_state {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/55e770e2-e1a4-4d1c-a8a4-dcfca27d6663
-    use crate::error::VBAProtectionState;
+    use crate::error::ProtectionState;
     use crate::ovba::algorithms::data_encryption;
     use std::{fmt::Display, str::FromStr};
 
@@ -83,16 +83,16 @@ mod vba_protection_state {
     }
 
     impl FromStr for ProjectProtectionState {
-        type Err = VBAProtectionState;
+        type Err = ProtectionState;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("CMG=\"").trim_end_matches('"');
-            let data = data_encryption::decrypt_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?;
             if data.len() != 4 {
-                return Err(VBAProtectionState::DataLength(data.len()));
+                return Err(ProtectionState::DataLength(data.len()));
             }
             if data[0] > 7 || data[1] != 0 || data[2] != 0 || data[3] != 0 {
-                return Err(VBAProtectionState::ReservedBits([
+                return Err(ProtectionState::ReservedBits([
                     data[0], data[1], data[2], data[3],
                 ]));
             }
@@ -120,8 +120,8 @@ mod vba_protection_state {
 
 mod vba_password {
     // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/79685426-30fe-43cd-9cbf-7f161c3de7d8
-    use crate::error;
     use crate::ovba::algorithms::data_encryption;
+    use crate::{error, ovba::algorithms::password_hash};
     use sha1::{Digest, Sha1};
     use std::{fmt::Display, str::FromStr};
 
@@ -132,15 +132,18 @@ mod vba_password {
     }
 
     impl FromStr for ProjectPassword {
-        type Err = error::VBAPassword;
+        type Err = error::Password;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("DPB=\"").trim_end_matches('"');
-            let data = data_encryption::decrypt_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?;
             Ok(match data.len() {
-                0 => return Err(error::VBAPassword::NoData),
+                0 => return Err(error::Password::NoData),
                 1 => Self::new_none(&data)?,
-                29 => Self::new_hash(&data)?,
+                29 => {
+                    let (salt, hash) = password_hash::decode(&data)?;
+                    Self::Hash(salt, hash)
+                }
                 _ => Self::new_plain(&data)?,
             })
         }
@@ -151,61 +154,16 @@ mod vba_password {
             matches!(self, Self::Hash(_, _))
         }
 
-        fn new_none(data: &[u8]) -> Result<Self, error::VBAPasswordNone> {
+        fn new_none(data: &[u8]) -> Result<Self, error::PasswordNone> {
             if data.first() != Some(0x00).as_ref() {
-                return Err(error::VBAPasswordNone::NotNull(data[0]));
+                return Err(error::PasswordNone::NotNull(data[0]));
             }
             Ok(Self::None)
         }
 
-        fn new_hash(data: &[u8]) -> Result<Self, error::VBAPasswordHash> {
-            // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/9d9f81e6-f92e-4338-a242-d38c1fcceed6
-            if data.first() != Some(0xff).as_ref() {
-                return Err(error::VBAPasswordHash::Reserved(data[0]));
-            }
+        fn new_plain(data: &[u8]) -> Result<Self, error::PasswordPlain> {
             if data.last() != Some(0x00).as_ref() {
-                return Err(error::VBAPasswordHash::Terminator(data[28]));
-            }
-
-            let mut salt = [0; 4];
-            salt.clone_from_slice(&data[4..8]);
-
-            let mut hash = [0; 20];
-            hash.clone_from_slice(&data[8..28]);
-
-            // https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/5797c2e1-4c86-4f44-89b4-1edb30da00cc
-            // Add nulls to salt
-            let mut grbitkey = data[1] & 0x0f;
-            for (i, byte) in salt.iter_mut().enumerate() {
-                if grbitkey & 1 == 0 {
-                    if *byte != 0x01 {
-                        return Err(error::VBAPasswordHash::SaltNull(salt, i));
-                    }
-                    *byte = 0;
-                }
-                grbitkey >>= 1;
-            }
-
-            // Add nulls to hash
-            let mut grbithashnull = u32::from(data[1]) >> 4;
-            grbithashnull |= u32::from(data[2]) << 4;
-            grbithashnull |= u32::from(data[3]) << 12;
-            for (i, byte) in hash.iter_mut().enumerate() {
-                if grbithashnull & 1 == 0 {
-                    if *byte != 0x01 {
-                        return Err(error::VBAPasswordHash::HashNull(hash, i));
-                    }
-                    *byte = 0;
-                }
-                grbithashnull >>= 1;
-            }
-
-            Ok(Self::Hash(salt, hash))
-        }
-
-        fn new_plain(data: &[u8]) -> Result<Self, error::VBAPasswordPlain> {
-            if data.last() != Some(0x00).as_ref() {
-                return Err(error::VBAPasswordPlain::Terminator(
+                return Err(error::PasswordPlain::Terminator(
                     *data
                         .last()
                         .expect("Cannot construct a plain password with zero length data"),
@@ -269,18 +227,18 @@ mod vba_visibility {
     }
 
     impl FromStr for ProjectVisibililyState {
-        type Err = error::VBAVisibility;
+        type Err = error::Visibility;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("GC=\"").trim_end_matches('"');
-            let data = data_encryption::decrypt_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?;
             if data.len() != 1 {
-                return Err(error::VBAVisibility::DataLength(data.len()));
+                return Err(error::Visibility::DataLength(data.len()));
             }
             match data.first() {
                 Some(0x00) => Ok(Self::NotVisible),
                 Some(0xff) => Ok(Self::Visible),
-                Some(x) => Err(error::VBAVisibility::InvalidState(*x)),
+                Some(x) => Err(error::Visibility::InvalidState(*x)),
                 None => unreachable!(),
             }
         }

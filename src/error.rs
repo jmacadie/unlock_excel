@@ -14,7 +14,7 @@ pub enum UnlockError {
     Zip(zip::result::ZipError),
     NoVBAFile,
     CFBOpen(io::Error),
-    ProjectStructure(VBAProjectStructure),
+    ProjectStructure(ProjectStructure),
 }
 
 impl From<io::Error> for UnlockError {
@@ -29,21 +29,21 @@ impl From<zip::result::ZipError> for UnlockError {
     }
 }
 
-impl From<VBAProtectionState> for UnlockError {
-    fn from(value: VBAProtectionState) -> Self {
-        Self::ProjectStructure(VBAProjectStructure::ProtectionState(value))
+impl From<ProtectionState> for UnlockError {
+    fn from(value: ProtectionState) -> Self {
+        Self::ProjectStructure(ProjectStructure::ProtectionState(value))
     }
 }
 
-impl From<VBAPassword> for UnlockError {
-    fn from(value: VBAPassword) -> Self {
-        Self::ProjectStructure(VBAProjectStructure::Password(value))
+impl From<Password> for UnlockError {
+    fn from(value: Password) -> Self {
+        Self::ProjectStructure(ProjectStructure::Password(value))
     }
 }
 
-impl From<VBAVisibility> for UnlockError {
-    fn from(value: VBAVisibility) -> Self {
-        Self::ProjectStructure(VBAProjectStructure::Visibility(value))
+impl From<Visibility> for UnlockError {
+    fn from(value: Visibility) -> Self {
+        Self::ProjectStructure(ProjectStructure::Visibility(value))
     }
 }
 
@@ -79,13 +79,13 @@ impl Debug for UnlockError {
     }
 }
 
-pub enum VBAProjectStructure {
-    ProtectionState(VBAProtectionState),
-    Password(VBAPassword),
-    Visibility(VBAVisibility),
+pub enum ProjectStructure {
+    ProtectionState(ProtectionState),
+    Password(Password),
+    Visibility(Visibility),
 }
 
-impl Display for VBAProjectStructure {
+impl Display for ProjectStructure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ProtectionState(e) => write!(f, "{e}"),
@@ -95,32 +95,32 @@ impl Display for VBAProjectStructure {
     }
 }
 
-impl From<VBAProtectionState> for VBAProjectStructure {
-    fn from(value: VBAProtectionState) -> Self {
+impl From<ProtectionState> for ProjectStructure {
+    fn from(value: ProtectionState) -> Self {
         Self::ProtectionState(value)
     }
 }
 
-impl From<VBAPassword> for VBAProjectStructure {
-    fn from(value: VBAPassword) -> Self {
+impl From<Password> for ProjectStructure {
+    fn from(value: Password) -> Self {
         Self::Password(value)
     }
 }
 
-impl From<VBAVisibility> for VBAProjectStructure {
-    fn from(value: VBAVisibility) -> Self {
+impl From<Visibility> for ProjectStructure {
+    fn from(value: Visibility) -> Self {
         Self::Visibility(value)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAProtectionState {
-    Decrypt(VBADecrypt),
+pub enum ProtectionState {
+    Decrypt(DataEncryption),
     DataLength(usize),
     ReservedBits([u8; 4]),
 }
 
-impl Display for VBAProtectionState {
+impl Display for ProtectionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decrypt(e) => write!(f, "{e}"),
@@ -130,22 +130,22 @@ impl Display for VBAProtectionState {
     }
 }
 
-impl From<VBADecrypt> for VBAProtectionState {
-    fn from(value: VBADecrypt) -> Self {
+impl From<DataEncryption> for ProtectionState {
+    fn from(value: DataEncryption) -> Self {
         Self::Decrypt(value)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAPassword {
-    Decrypt(VBADecrypt),
-    None(VBAPasswordNone),
-    Hash(VBAPasswordHash),
-    PlainText(VBAPasswordPlain),
+pub enum Password {
+    Decrypt(DataEncryption),
+    None(PasswordNone),
+    Hash(PasswordHash),
+    PlainText(PasswordPlain),
     NoData,
 }
 
-impl Display for VBAPassword {
+impl Display for Password {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decrypt(e) => write!(f, "{e}"),
@@ -157,36 +157,36 @@ impl Display for VBAPassword {
     }
 }
 
-impl From<VBADecrypt> for VBAPassword {
-    fn from(value: VBADecrypt) -> Self {
+impl From<DataEncryption> for Password {
+    fn from(value: DataEncryption) -> Self {
         Self::Decrypt(value)
     }
 }
 
-impl From<VBAPasswordNone> for VBAPassword {
-    fn from(value: VBAPasswordNone) -> Self {
+impl From<PasswordNone> for Password {
+    fn from(value: PasswordNone) -> Self {
         Self::None(value)
     }
 }
 
-impl From<VBAPasswordHash> for VBAPassword {
-    fn from(value: VBAPasswordHash) -> Self {
+impl From<PasswordHash> for Password {
+    fn from(value: PasswordHash) -> Self {
         Self::Hash(value)
     }
 }
 
-impl From<VBAPasswordPlain> for VBAPassword {
-    fn from(value: VBAPasswordPlain) -> Self {
+impl From<PasswordPlain> for Password {
+    fn from(value: PasswordPlain) -> Self {
         Self::PlainText(value)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAPasswordNone {
+pub enum PasswordNone {
     NotNull(u8),
 }
 
-impl Display for VBAPasswordNone {
+impl Display for PasswordNone {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotNull(b) => write!(
@@ -198,16 +198,18 @@ impl Display for VBAPasswordNone {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAPasswordHash {
+pub enum PasswordHash {
+    Length(usize),
     Reserved(u8),
     Terminator(u8),
     SaltNull([u8; 4], usize),
     HashNull([u8; 20], usize),
 }
 
-impl Display for VBAPasswordHash {
+impl Display for PasswordHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Length(l) => write!(f, "The digest for the password hash must be 29 bytes, not {l}"),
             Self::Reserved(b) => write!(f, "The first byte of the VBA password hash data structure is reserved and MUST be 0xff, not 0x{b:02x}"),
             Self::Terminator(b) => write!(f, "The final byte of the VBA password hash data structure is the terminator and MUST be 0x00, not 0x{b:02x}"),
             Self::SaltNull(data, i) => write!(f, "The byte in position {i} of the salt {data:?} is being replaced with a null. It should have a value of 1 before update"),
@@ -217,11 +219,24 @@ impl Display for VBAPasswordHash {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAPasswordPlain {
+pub enum PasswordHashEncode {
+    SaltLength(usize),
+}
+
+impl Display for PasswordHashEncode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SaltLength(l) => write!(f, "The salt must be 4 bytes, not {l}"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PasswordPlain {
     Terminator(u8),
 }
 
-impl Display for VBAPasswordPlain {
+impl Display for PasswordPlain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Terminator(b) => write!(
@@ -233,13 +248,13 @@ impl Display for VBAPasswordPlain {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBAVisibility {
-    Decrypt(VBADecrypt),
+pub enum Visibility {
+    Decrypt(DataEncryption),
     DataLength(usize),
     InvalidState(u8),
 }
 
-impl Display for VBAVisibility {
+impl Display for Visibility {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Decrypt(e) => write!(f, "{e}"),
@@ -255,33 +270,24 @@ impl Display for VBAVisibility {
     }
 }
 
-impl From<VBADecrypt> for VBAVisibility {
-    fn from(value: VBADecrypt) -> Self {
+impl From<DataEncryption> for Visibility {
+    fn from(value: DataEncryption) -> Self {
         Self::Decrypt(value)
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum VBADecrypt {
-    InvalidHex(String),
+pub enum DataEncryption {
+    InvalidHex(InvalidHex),
     TooShort(String),
     Version(u8),
     LengthMismatch(u32, u32),
 }
 
-impl From<ParseIntError> for VBADecrypt {
-    fn from(value: ParseIntError) -> Self {
-        Self::InvalidHex(format!("{value}"))
-    }
-}
-
-impl Display for VBADecrypt {
+impl Display for DataEncryption {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidHex(s) => write!(
-                f,
-                "Cannot apply VBA data decryption as supplied value is not valid hex: {s}"
-            ),
+            Self::InvalidHex(e) => write!(f, "{e}"),
             Self::TooShort(s) => write!(f, "The hex string {s} is too short to be decrypted"),
             Self::Version(v) => {
                 write!(
@@ -293,5 +299,36 @@ impl Display for VBADecrypt {
                 write!(f, "The length of the decrypted data: {data} does not match decrypted length: {length}")
             }
         }
+    }
+}
+
+impl From<InvalidHex> for DataEncryption {
+    fn from(value: InvalidHex) -> Self {
+        Self::InvalidHex(value)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct InvalidHex(String);
+
+impl From<String> for InvalidHex {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ParseIntError> for InvalidHex {
+    fn from(value: ParseIntError) -> Self {
+        Self(format!("{value}"))
+    }
+}
+
+impl Display for InvalidHex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Cannot apply VBA data decryption as supplied value is not valid hex: {}",
+            self.0
+        )
     }
 }

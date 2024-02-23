@@ -1,49 +1,10 @@
 //! VBA reversible encryption algorithm
 //!
 //! Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a02dfe4e-3c9f-45a4-8f14-f2f2d44fa063)
-use std::{fmt::Write, ops::Deref, str::FromStr};
+use super::Data;
+use std::fmt::Write;
 
 use crate::error;
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Data(Vec<u8>);
-
-impl FromStr for Data {
-    type Err = error::VBADecrypt;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.bytes().any(|x| !x.is_ascii_hexdigit()) {
-            return Err(error::VBADecrypt::InvalidHex(s.to_owned()));
-        }
-        let length = s.len() / 2;
-        let mut data = Vec::with_capacity(length);
-        data.extend(s.as_bytes().chunks_exact(2).map(|x| {
-            let upper = match x[0] {
-                val if val.is_ascii_digit() => val - b'0',
-                val if val.is_ascii_lowercase() => val - b'a' + 10,
-                val if val.is_ascii_uppercase() => val - b'A' + 10,
-                _ => unreachable!(),
-            };
-            let lower = match x[1] {
-                val if val.is_ascii_digit() => val - b'0',
-                val if val.is_ascii_lowercase() => val - b'a' + 10,
-                val if val.is_ascii_uppercase() => val - b'A' + 10,
-                _ => unreachable!(),
-            };
-            (upper << 4) | lower
-        }));
-        Ok(Self(data))
-    }
-}
-
-// TODO: Remove? This is not a smart pointer
-impl Deref for Data {
-    type Target = Vec<u8>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 /// Apply VBA decryption algorithm to a hexadecimal string of encrypted data
 ///
@@ -62,9 +23,9 @@ impl Deref for Data {
 /// MUST be 2
 /// - the length of the decrypted data does not match the decrypted
 /// length parameter
-pub fn decrypt_str(hex: &str) -> Result<Data, error::VBADecrypt> {
+pub fn decode_str(hex: &str) -> Result<Data, error::DataEncryption> {
     let data: Data = hex.parse()?;
-    decrypt(&data.0)
+    decode(&data.0)
 }
 
 /// Apply VBA decryption algorithm to a slice of bytes of encrypted data
@@ -83,14 +44,14 @@ pub fn decrypt_str(hex: &str) -> Result<Data, error::VBADecrypt> {
 /// MUST be 2
 /// - the length of the decrypted data does not match the decrypted
 /// length parameter
-pub fn decrypt(encrypted_data: &[u8]) -> Result<Data, error::VBADecrypt> {
+pub fn decode(encrypted_data: &[u8]) -> Result<Data, error::DataEncryption> {
     if encrypted_data.len() < 8 {
         // 3 for seed, version & project key + 0 ignored + 4 length + 1 data
         let string = encrypted_data.iter().fold(String::new(), |mut output, b| {
             let _ = write!(output, "{b:02x}");
             output
         });
-        return Err(error::VBADecrypt::TooShort(string));
+        return Err(error::DataEncryption::TooShort(string));
     }
 
     let seed = encrypted_data[0];
@@ -99,7 +60,7 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Data, error::VBADecrypt> {
 
     let version = seed ^ version_enc;
     if version != 2 {
-        return Err(error::VBADecrypt::Version(version));
+        return Err(error::DataEncryption::Version(version));
     }
     let project_key = seed ^ project_key_enc;
     let ignored_length = ((seed & 6) >> 1).into();
@@ -128,9 +89,9 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Data, error::VBADecrypt> {
     }
 
     let data_len = u32::try_from(data.len())
-        .map_err(|_| error::VBADecrypt::LengthMismatch(u32::MAX, length))?;
+        .map_err(|_| error::DataEncryption::LengthMismatch(u32::MAX, length))?;
     if data_len != length {
-        return Err(error::VBADecrypt::LengthMismatch(data_len, length));
+        return Err(error::DataEncryption::LengthMismatch(data_len, length));
     }
 
     Ok(Data(data))
@@ -141,7 +102,7 @@ pub fn decrypt(encrypted_data: &[u8]) -> Result<Data, error::VBADecrypt> {
 ///
 /// # Reference
 /// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/1ad481e0-7df4-4cac-a9a4-9c29a1340123)
-pub fn encrypt(seed: u8, project_key: u8, data: &[u8]) -> Data {
+pub fn encode(seed: u8, project_key: u8, data: &[u8]) -> Data {
     const VERSION: u8 = 2;
     let version_enc = seed ^ VERSION;
     let project_key_enc = seed ^ project_key;
@@ -187,13 +148,13 @@ mod tests {
     fn decrypt_non_hex() {
         let test = "123456789abcdefg";
         assert_eq!(
-            Err(error::VBADecrypt::InvalidHex(String::from(test))),
-            decrypt_str(test)
+            Err(error::DataEncryption::InvalidHex(String::from(test).into())),
+            decode_str(test)
         );
         let test = "0e2!";
         assert_eq!(
-            Err(error::VBADecrypt::InvalidHex(String::from(test))),
-            decrypt_str(test)
+            Err(error::DataEncryption::InvalidHex(String::from(test).into())),
+            decode_str(test)
         );
     }
 
@@ -201,13 +162,13 @@ mod tests {
     fn decrypt_too_short() {
         let test = "123456789abcde";
         assert_eq!(
-            Err(error::VBADecrypt::TooShort(String::from(test))),
-            decrypt_str(test)
+            Err(error::DataEncryption::TooShort(String::from(test))),
+            decode_str(test)
         );
         let test = "0e2f";
         assert_eq!(
-            Err(error::VBADecrypt::TooShort(String::from(test))),
-            decrypt_str(test)
+            Err(error::DataEncryption::TooShort(String::from(test))),
+            decode_str(test)
         );
     }
 
@@ -215,8 +176,8 @@ mod tests {
     fn decrypt_version_not_2() {
         let test = "0123456789abcdef";
         assert_eq!(
-            Err(error::VBADecrypt::Version(0x01 ^ 0x23)),
-            decrypt_str(test)
+            Err(error::DataEncryption::Version(0x01 ^ 0x23)),
+            decode_str(test)
         );
     }
 
@@ -224,8 +185,8 @@ mod tests {
     fn decrypt_data_length_mismatch() {
         let test = "1113eb02fa02fa6d27";
         assert_eq!(
-            Err(error::VBADecrypt::LengthMismatch(2, 15)),
-            decrypt_str(test)
+            Err(error::DataEncryption::LengthMismatch(2, 15)),
+            decode_str(test)
         );
     }
 
@@ -233,28 +194,22 @@ mod tests {
     fn encrypt_and_decrypt() {
         let raw =
             b"When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow.";
-        let enc = encrypt(0x0c, 0x9f, raw);
-        let dec = decrypt(&enc).unwrap();
+        let enc = encode(0x0c, 0x9f, raw);
+        let dec = decode(&enc).unwrap();
         assert_eq!(Vec::from(raw), dec.0);
     }
 
     #[test]
     fn upper_and_lowercase_hex() {
         let raw = b"It was a bright cold day in April, and the clocks were striking thirteen.";
-        let enc = encrypt(0x99, 0xa1, raw);
+        let enc = encode(0x99, 0xa1, raw);
 
-        let upper = enc.0.iter().fold(String::new(), |mut s, b| {
-            let _ = write!(s, "{b:02X}");
-            s
-        });
-        let dec = decrypt_str(&upper).unwrap();
+        let upper = format!("{enc}");
+        let dec = decode_str(&upper).unwrap();
         assert_eq!(Vec::from(raw), dec.0);
 
-        let lower = enc.0.iter().fold(String::new(), |mut s, b| {
-            let _ = write!(s, "{b:02x}");
-            s
-        });
-        let dec = decrypt_str(&lower).unwrap();
+        let lower = upper.to_lowercase();
+        let dec = decode_str(&lower).unwrap();
         assert_eq!(Vec::from(raw), dec.0);
     }
 }
