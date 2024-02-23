@@ -25,7 +25,7 @@ use crate::error;
 /// length parameter
 pub fn decode_str(hex: &str) -> Result<Data, error::DataEncryption> {
     let data: Data = hex.parse()?;
-    decode(&data.0)
+    decode(data.0)
 }
 
 /// Apply VBA decryption algorithm to a slice of bytes of encrypted data
@@ -44,7 +44,8 @@ pub fn decode_str(hex: &str) -> Result<Data, error::DataEncryption> {
 /// MUST be 2
 /// - the length of the decrypted data does not match the decrypted
 /// length parameter
-pub fn decode(encrypted_data: &[u8]) -> Result<Data, error::DataEncryption> {
+pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Data, error::DataEncryption> {
+    let encrypted_data = encrypted_data.as_ref();
     if encrypted_data.len() < 8 {
         // 3 for seed, version & project key + 0 ignored + 4 length + 1 data
         let string = encrypted_data.iter().fold(String::new(), |mut output, b| {
@@ -102,8 +103,10 @@ pub fn decode(encrypted_data: &[u8]) -> Result<Data, error::DataEncryption> {
 ///
 /// # Reference
 /// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/1ad481e0-7df4-4cac-a9a4-9c29a1340123)
-pub fn encode(seed: u8, project_key: u8, data: &[u8]) -> Data {
+pub fn encode<D: AsRef<[u8]>>(seed: u8, project_key: u8, data: D) -> Data {
     const VERSION: u8 = 2;
+    let data = data.as_ref();
+
     let version_enc = seed ^ VERSION;
     let project_key_enc = seed ^ project_key;
     let ignored_length = (seed & 6) >> 1;
@@ -195,7 +198,7 @@ mod tests {
         let raw =
             b"When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow.";
         let enc = encode(0x0c, 0x9f, raw);
-        let dec = decode(&enc).unwrap();
+        let dec = decode(enc).unwrap();
         assert_eq!(Vec::from(raw), dec.0);
     }
 

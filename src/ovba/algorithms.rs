@@ -3,7 +3,6 @@ pub mod password_hash;
 
 use crate::error;
 use std::fmt::Display;
-use std::ops::Deref;
 use std::str::FromStr;
 
 /// Common data structure to represent an arbitrary stream of bytes.
@@ -62,11 +61,8 @@ impl AsRef<[u8]> for Data {
     }
 }
 
-// TODO: Remove? This is not a smart pointer
-impl Deref for Data {
-    type Target = Vec<u8>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl Data {
+    pub fn into_inner(self) -> Vec<u8> {
+        self.0
     }
 }

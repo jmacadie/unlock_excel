@@ -87,7 +87,7 @@ mod vba_protection_state {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("CMG=\"").trim_end_matches('"');
-            let data = data_encryption::decode_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?.into_inner();
             if data.len() != 4 {
                 return Err(ProtectionState::DataLength(data.len()));
             }
@@ -136,12 +136,12 @@ mod vba_password {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("DPB=\"").trim_end_matches('"');
-            let data = data_encryption::decode_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?.into_inner();
             Ok(match data.len() {
                 0 => return Err(error::Password::NoData),
                 1 => Self::new_none(&data)?,
                 29 => {
-                    let (salt, hash) = password_hash::decode(&data)?;
+                    let (salt, hash) = password_hash::decode(data)?;
                     Self::Hash(salt, hash)
                 }
                 _ => Self::new_plain(&data)?,
@@ -231,7 +231,7 @@ mod vba_visibility {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let hex_str = s.trim_start_matches("GC=\"").trim_end_matches('"');
-            let data = data_encryption::decode_str(hex_str)?;
+            let data = data_encryption::decode_str(hex_str)?.into_inner();
             if data.len() != 1 {
                 return Err(error::Visibility::DataLength(data.len()));
             }
