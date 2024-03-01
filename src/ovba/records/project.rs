@@ -222,7 +222,7 @@ mod nom_parse {
         map(
             pair(
                 preceded(tag("Document="), module_identifier::parse),
-                preceded(tag([0x2f]), hex_int_32::parse),
+                preceded(tag("/"), hex_int_32::parse),
             ),
             |(module, doc_tlib_ver)| Module::Doc(module, doc_tlib_ver),
         )(input)
@@ -320,13 +320,10 @@ mod nom_parse {
                         data[0], data[1], data[2], data[3],
                     ]));
                 }
-                let user_protected = data[0] & 1 == 1;
-                let host_protected = data[0] & 2 == 2;
-                let vbe_protected = data[0] & 4 == 4;
                 Ok(ProtectionState {
-                    user: user_protected,
-                    host: host_protected,
-                    vbe: vbe_protected,
+                    user: data[0] & 1 == 1,
+                    host: data[0] & 2 == 2,
+                    vbe: data[0] & 4 == 4,
                 })
             },
         )(input)
