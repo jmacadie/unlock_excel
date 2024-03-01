@@ -1,6 +1,6 @@
 [package]
 name = "unlock_excel"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 authors = ["James MacAdie"]
 description = "Small command line utility to inspect or remove the VBA protection status of Excel files"
