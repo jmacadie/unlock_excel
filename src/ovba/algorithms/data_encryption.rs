@@ -6,28 +6,6 @@ use std::fmt::Write;
 
 use crate::error;
 
-/// Apply VBA decryption algorithm to a hexadecimal string of encrypted data
-///
-/// # Reference
-/// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/7e9d84fe-86e3-46d6-aaff-8388e72c0168)
-///
-/// # Error
-/// Will generate an error if:
-/// - any of the characters are not ascii hex digits: 0-9, a-z, A-Z
-/// - the input is too short to correctly contain encrypted data.
-/// At the very least, 6 chars are needed for the seed, version &
-/// project key, plus 0 to 6 characters of ignored data, plus 8
-/// characters for the data length and then at least 2 characters
-/// for the data itself. This makes a minimum of 16 characters
-/// - the version is not 2. According to the spec the version
-/// MUST be 2
-/// - the length of the decrypted data does not match the decrypted
-/// length parameter
-pub fn decode_str(hex: &str) -> Result<Data, error::DataEncryption> {
-    let data: Data = hex.parse()?;
-    decode(data.0)
-}
-
 /// Apply VBA decryption algorithm to a slice of bytes of encrypted data
 ///
 /// # Reference

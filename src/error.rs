@@ -29,6 +29,12 @@ impl From<zip::result::ZipError> for UnlockError {
     }
 }
 
+impl From<ProjectStructure> for UnlockError {
+    fn from(value: ProjectStructure) -> Self {
+        Self::ProjectStructure(value)
+    }
+}
+
 impl From<ProtectionState> for UnlockError {
     fn from(value: ProtectionState) -> Self {
         Self::ProjectStructure(ProjectStructure::ProtectionState(value))
@@ -80,6 +86,7 @@ impl Debug for UnlockError {
 }
 
 pub enum ProjectStructure {
+    NomParseError(Vec<u8>, Vec<u8>),
     ProtectionState(ProtectionState),
     Password(Password),
     Visibility(Visibility),
@@ -88,6 +95,12 @@ pub enum ProjectStructure {
 impl Display for ProjectStructure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NomParseError(left, whole) => write!(
+                f,
+                "Had issue parsing the project information at {} \n\nThis was the full text to be parsed {}",
+                String::from_utf8_lossy(left),
+                String::from_utf8_lossy(whole),
+            ),
             Self::ProtectionState(e) => write!(f, "{e}"),
             Self::Password(e) => write!(f, "{e}"),
             Self::Visibility(e) => write!(f, "{e}"),
