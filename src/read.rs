@@ -69,10 +69,13 @@ fn print_info(p: &Project, decode: bool) {
                     print!("{byte:02x}");
                 }
                 println!();
-                println!();
                 match (decode, decoded) {
-                    (true, Some(s)) => println!("✅ Was able to decode this weak password: {s}"),
+                    (true, Some(s)) => {
+                        println!();
+                        println!("✅ Was able to decode this weak password: {s}");
+                    }
                     (true, None) => {
+                        println!();
                         println!("❌ Was unable to decode this password");
                         println!("You can just remove the password with `unlock_excel remove FILENAME`, which will always work");
                     }

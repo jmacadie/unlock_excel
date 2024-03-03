@@ -1,8 +1,6 @@
 //! VBA reversible encryption algorithm
 //!
 //! Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a02dfe4e-3c9f-45a4-8f14-f2f2d44fa063)
-use std::fmt::Write;
-
 use crate::error;
 
 /// Apply VBA decryption algorithm to a slice of bytes of encrypted data
@@ -25,10 +23,9 @@ pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Vec<u8>, error::DataE
     let encrypted_data = encrypted_data.as_ref();
     if encrypted_data.len() < 8 {
         // 3 for seed, version & project key + 0 ignored + 4 length + 1 data
-        let string = encrypted_data.iter().fold(String::new(), |mut output, b| {
-            let _ = write!(output, "{b:02x}");
-            output
-        });
+        let string = encrypted_data
+            .iter()
+            .fold(String::new(), |s, b| format!("{s}{b:02x}"));
         return Err(error::DataEncryption::TooShort(string));
     }
 
@@ -168,6 +165,6 @@ mod tests {
             b"When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow.";
         let enc = encode(0x0c, 0x9f, raw);
         let dec = decode(enc).unwrap();
-        assert_eq!(raw.to_vec(), dec);
+        assert_eq!(&raw[..], &dec);
     }
 }
