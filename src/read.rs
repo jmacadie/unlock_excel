@@ -3,29 +3,44 @@ use std::io::{Cursor, Read};
 use std::path::Path;
 
 use crate::consts;
-use crate::error::UnlockError;
-use crate::error::UnlockResult;
+use crate::error::{UnlockError, UnlockResult};
 use crate::ovba::records::project::{Password, Project};
 use sha1::{Digest, Sha1};
 use zip::ZipArchive;
 
-pub fn xl_97(filename: &Path, decode: bool) -> UnlockResult<()> {
-    let mut file = cfb::open(filename).map_err(UnlockError::CFBOpen)?;
-    let project_stream = file.open_stream(consts::CFB_VBA_PATH)?;
-    let project = Project::from_stream(project_stream)?;
-    print_info(&project, decode);
+pub fn print_xl(filename: &Path, decode: bool) -> UnlockResult<()> {
+    let (project, decoded_password) = xl_project(filename, decode)?;
+    print_info(&project, decode, decoded_password);
     Ok(())
 }
 
-pub fn xl(filename: &Path, decode: bool) -> UnlockResult<()> {
+pub fn xl_project(filename: &Path, decode: bool) -> UnlockResult<(Project, Option<String>)> {
     let zipfile = File::open(filename)?;
     let mut archive = zip::ZipArchive::new(zipfile)?;
     let vba_raw = zip_to_raw_vba(&mut archive)?;
     let mut vba_cfb = cfb::CompoundFile::open(vba_raw).map_err(UnlockError::CFBOpen)?;
     let project_stream = vba_cfb.open_stream(consts::PROJECT_PATH)?;
     let project = Project::from_stream(project_stream)?;
-    print_info(&project, decode);
+    let decoded_password = decode
+        .then(|| try_solve_password(project.password()))
+        .flatten();
+    Ok((project, decoded_password))
+}
+
+pub fn print_xl_97(filename: &Path, decode: bool) -> UnlockResult<()> {
+    let (project, decoded_password) = xl_97_project(filename, decode)?;
+    print_info(&project, decode, decoded_password);
     Ok(())
+}
+
+pub fn xl_97_project(filename: &Path, decode: bool) -> UnlockResult<(Project, Option<String>)> {
+    let mut file = cfb::open(filename).map_err(UnlockError::CFBOpen)?;
+    let project_stream = file.open_stream(consts::CFB_VBA_PATH)?;
+    let project = Project::from_stream(project_stream)?;
+    let decoded_password = decode
+        .then(|| try_solve_password(project.password()))
+        .flatten();
+    Ok((project, decoded_password))
 }
 
 pub fn zip_to_raw_vba<R: std::io::Read + std::io::Seek>(
@@ -43,7 +58,7 @@ pub fn zip_to_raw_vba<R: std::io::Read + std::io::Seek>(
     Ok(Cursor::new(buffer))
 }
 
-fn print_info(p: &Project, decode: bool) {
+fn print_info(p: &Project, decode: bool, decoded: Option<String>) {
     if p.is_locked() {
         match p.password() {
             Password::None => {
@@ -51,11 +66,6 @@ fn print_info(p: &Project, decode: bool) {
                 println!("This should never happen 🤷");
             }
             Password::Hash(salt, hash) => {
-                let decoded = if decode {
-                    try_solve_password(salt, hash)
-                } else {
-                    None
-                };
                 println!("🔐 The VBA is locked");
                 println!();
                 println!("The password (+ a salt) has been stored as a SHA1 hash:");
@@ -94,16 +104,21 @@ fn print_info(p: &Project, decode: bool) {
     }
 }
 
-fn try_solve_password(salt: &[u8], hash: &[u8]) -> Option<String> {
-    let words = include_str!("password.lst");
-    let mut hasher = Sha1::new();
-    for trial in words.lines() {
-        let mut salted: Vec<u8> = trial.as_bytes().to_owned();
-        salted.extend_from_slice(salt);
-        hasher.update(salted);
-        if hasher.finalize_reset()[..] == *hash {
-            return Some(trial.to_owned());
+fn try_solve_password(p: &Password) -> Option<String> {
+    match p {
+        Password::Hash(salt, hash) => {
+            let words = include_str!("password.lst");
+            let mut hasher = Sha1::new();
+            for trial in words.lines() {
+                let mut salted: Vec<u8> = trial.as_bytes().to_owned();
+                salted.extend_from_slice(salt);
+                hasher.update(salted);
+                if hasher.finalize_reset()[..] == *hash {
+                    return Some(trial.to_owned());
+                }
+            }
+            None
         }
+        _ => None,
     }
-    None
 }

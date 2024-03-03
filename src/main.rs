@@ -1,16 +1,10 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 
-mod consts;
-mod error;
-mod ovba;
-mod read;
-mod remove;
-
 use clap::{Args, Parser, Subcommand};
 use std::path::Path;
 
-use crate::error::UnlockError;
-use crate::error::UnlockResult;
+use unlock_excel::error::{UnlockError, UnlockResult};
+use unlock_excel::{read, remove};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -59,8 +53,8 @@ fn main() -> UnlockResult<()> {
     let cli = Cli::parse();
     let (filename, version) = get_file(&cli)?;
     match (&cli.command, version) {
-        (Commands::Read(args), XlType::Old) => read::xl_97(filename, args.decode)?,
-        (Commands::Read(args), XlType::New) => read::xl(filename, args.decode)?,
+        (Commands::Read(args), XlType::Old) => read::print_xl_97(filename, args.decode)?,
+        (Commands::Read(args), XlType::New) => read::print_xl(filename, args.decode)?,
         (Commands::Remove(args), XlType::Old) => remove::xl_97(filename, args.inplace)?,
         (Commands::Remove(args), XlType::New) => remove::xl(filename, args.inplace)?,
     }
