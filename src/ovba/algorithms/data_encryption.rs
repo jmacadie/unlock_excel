@@ -1,7 +1,6 @@
 //! VBA reversible encryption algorithm
 //!
 //! Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/a02dfe4e-3c9f-45a4-8f14-f2f2d44fa063)
-use super::Data;
 use std::fmt::Write;
 
 use crate::error;
@@ -22,7 +21,7 @@ use crate::error;
 /// MUST be 2
 /// - the length of the decrypted data does not match the decrypted
 /// length parameter
-pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Data, error::DataEncryption> {
+pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Vec<u8>, error::DataEncryption> {
     let encrypted_data = encrypted_data.as_ref();
     if encrypted_data.len() < 8 {
         // 3 for seed, version & project key + 0 ignored + 4 length + 1 data
@@ -73,7 +72,7 @@ pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Data, error::DataEncr
         return Err(error::DataEncryption::LengthMismatch(data_len, length));
     }
 
-    Ok(Data(data))
+    Ok(data)
 }
 
 #[allow(dead_code)]
@@ -81,7 +80,7 @@ pub fn decode<D: AsRef<[u8]>>(encrypted_data: D) -> Result<Data, error::DataEncr
 ///
 /// # Reference
 /// Specification can be found [here](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-ovba/1ad481e0-7df4-4cac-a9a4-9c29a1340123)
-pub fn encode<D: AsRef<[u8]>>(seed: u8, project_key: u8, data: D) -> Data {
+pub fn encode<D: AsRef<[u8]>>(seed: u8, project_key: u8, data: D) -> Vec<u8> {
     const VERSION: u8 = 2;
     let data = data.as_ref();
 
@@ -116,7 +115,7 @@ pub fn encode<D: AsRef<[u8]>>(seed: u8, project_key: u8, data: D) -> Data {
         unencrypted_byte_1 = byte;
     }
 
-    Data(encrypted_data)
+    encrypted_data
 }
 
 #[cfg(test)]
@@ -126,48 +125,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decrypt_non_hex() {
-        let test = "123456789abcdefg";
-        assert_eq!(
-            Err(error::DataEncryption::InvalidHex(String::from(test).into())),
-            decode_str(test)
-        );
-        let test = "0e2!";
-        assert_eq!(
-            Err(error::DataEncryption::InvalidHex(String::from(test).into())),
-            decode_str(test)
-        );
-    }
-
-    #[test]
     fn decrypt_too_short() {
-        let test = "123456789abcde";
+        let test = [0x21, 0x34, 0x56, 0x78, 0x4a, 0x3b, 0x2f];
         assert_eq!(
-            Err(error::DataEncryption::TooShort(String::from(test))),
-            decode_str(test)
+            Err(error::DataEncryption::TooShort(
+                test.iter()
+                    .fold(String::new(), |s, b| format!("{s}{b:02x}"))
+            )),
+            decode(test)
         );
-        let test = "0e2f";
+        let test = [0x7e, 0x2f];
         assert_eq!(
-            Err(error::DataEncryption::TooShort(String::from(test))),
-            decode_str(test)
+            Err(error::DataEncryption::TooShort(
+                test.iter()
+                    .fold(String::new(), |s, b| format!("{s}{b:02x}"))
+            )),
+            decode(test)
         );
     }
 
     #[test]
     fn decrypt_version_not_2() {
-        let test = "0123456789abcdef";
+        let test = [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef];
         assert_eq!(
             Err(error::DataEncryption::Version(0x01 ^ 0x23)),
-            decode_str(test)
+            decode(test)
         );
     }
 
     #[test]
     fn decrypt_data_length_mismatch() {
-        let test = "1113eb02fa02fa6d27";
+        let test = [0x11, 0x13, 0xeb, 0x02, 0xfa, 0x02, 0xfa, 0x6d, 0x27];
         assert_eq!(
             Err(error::DataEncryption::LengthMismatch(2, 15)),
-            decode_str(test)
+            decode(test)
         );
     }
 
@@ -177,20 +168,6 @@ mod tests {
             b"When he was nearly thirteen, my brother Jem got his arm badly broken at the elbow.";
         let enc = encode(0x0c, 0x9f, raw);
         let dec = decode(enc).unwrap();
-        assert_eq!(Vec::from(raw), dec.0);
-    }
-
-    #[test]
-    fn upper_and_lowercase_hex() {
-        let raw = b"It was a bright cold day in April, and the clocks were striking thirteen.";
-        let enc = encode(0x99, 0xa1, raw);
-
-        let upper = format!("{enc}");
-        let dec = decode_str(&upper).unwrap();
-        assert_eq!(Vec::from(raw), dec.0);
-
-        let lower = upper.to_lowercase();
-        let dec = decode_str(&lower).unwrap();
-        assert_eq!(Vec::from(raw), dec.0);
+        assert_eq!(raw.to_vec(), dec);
     }
 }

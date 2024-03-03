@@ -6,8 +6,6 @@ use sha1::{Digest, Sha1};
 
 use crate::error;
 
-use super::Data;
-
 pub type Salt = [u8; 4];
 pub type Hash = [u8; 20];
 // TODO: Should actually take an array of bytes that are MBCS characters encoded using the
@@ -86,7 +84,7 @@ pub fn decode<D: AsRef<[u8]>>(data: D) -> Result<(Salt, Hash), error::PasswordHa
 /// Will error if:
 /// - The salt is not 4 bytes long
 #[allow(dead_code)]
-fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Data, error::PasswordHashEncode> {
+fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Vec<u8>, error::PasswordHashEncode> {
     if salt.as_ref().len() != 4 {
         return Err(error::PasswordHashEncode::SaltLength(salt.as_ref().len()));
     }
@@ -142,7 +140,7 @@ fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Data, error::PasswordHa
 
     output.push(0x00);
 
-    Ok(output.into())
+    Ok(output)
 }
 
 /// Generate an SHA1 hash of the given password, expressed in bytes, plus the 4 random bytes of the
@@ -165,14 +163,14 @@ fn generate_hash<S: AsRef<[u8]>>(password: Password, salt: S) -> Hash {
 fn encode_password_with_salt<S: AsRef<[u8]>>(
     password: Password,
     salt: S,
-) -> Result<Data, error::PasswordHashEncode> {
+) -> Result<Vec<u8>, error::PasswordHashEncode> {
     let hash = generate_hash(password, &salt);
     encode(salt, hash)
 }
 
 /// Hashes the password with a random salt, and then encodes for storing in the VBA file
 #[allow(dead_code)]
-pub fn encode_password(password: Password) -> Data {
+pub fn encode_password(password: Password) -> Vec<u8> {
     let mut rng = rand::thread_rng();
     let salt = [rng.gen(), rng.gen(), rng.gen(), rng.gen()];
     encode_password_with_salt(password, salt).expect("the salt is 4 bytes long")

@@ -21,7 +21,10 @@
 
 use crate::{
     error,
-    ovba::types::{guid, hex_int_32, int_32, module_identifier, path},
+    ovba::{
+        algorithms::password_hash,
+        types::{guid, hex_int_32, int_32, module_identifier, path},
+    },
 };
 use cfb::Stream;
 use nom::Finish;
@@ -75,7 +78,7 @@ struct ProtectionState {
 #[derive(Debug)]
 pub enum Password {
     None,
-    Hash([u8; 4], [u8; 20]),
+    Hash(password_hash::Salt, password_hash::Hash),
     Plain(String),
 }
 
@@ -311,7 +314,7 @@ mod nom_parse {
                 pair(tag("\""), new_line::parse),
             ),
             |encrypted: Vec<u8>| {
-                let data = data_encryption::decode(encrypted)?.into_inner();
+                let data = data_encryption::decode(encrypted)?;
                 if data.len() != 4 {
                     return Err(error::ProtectionState::DataLength(data.len()));
                 }
@@ -337,7 +340,7 @@ mod nom_parse {
                 pair(tag("\""), new_line::parse),
             ),
             |encrypted: Vec<u8>| {
-                let data = data_encryption::decode(encrypted)?.into_inner();
+                let data = data_encryption::decode(encrypted)?;
                 Ok(match data.len() {
                     0 => return Err(error::Password::NoData),
                     1 => {
@@ -374,7 +377,7 @@ mod nom_parse {
                 pair(tag("\""), new_line::parse),
             ),
             |encrypted: Vec<u8>| {
-                let data = data_encryption::decode(encrypted)?.into_inner();
+                let data = data_encryption::decode(encrypted)?;
                 if data.len() != 1 {
                     return Err(error::Visibility::DataLength(data.len()));
                 }

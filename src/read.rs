@@ -57,7 +57,8 @@ fn print_info(p: &Project, decode: bool) {
                     None
                 };
                 println!("🔐 The VBA is locked");
-                println!("The password (+ a salt) has been stored as a SHA1 hash");
+                println!();
+                println!("The password (+ a salt) has been stored as a SHA1 hash:");
                 print!("Hash: ");
                 for byte in hash {
                     print!("{byte:02x}");
@@ -68,8 +69,9 @@ fn print_info(p: &Project, decode: bool) {
                     print!("{byte:02x}");
                 }
                 println!();
+                println!();
                 match (decode, decoded) {
-                    (true, Some(s)) => println!("✔️ Was able to decode this weak password: {s}"),
+                    (true, Some(s)) => println!("✅ Was able to decode this weak password: {s}"),
                     (true, None) => {
                         println!("❌ Was unable to decode this password");
                         println!("You can just remove the password with `unlock_excel remove FILENAME`, which will always work");
@@ -79,6 +81,7 @@ fn print_info(p: &Project, decode: bool) {
             }
             Password::Plain(text) => {
                 println!("🔒 The VBA is locked");
+                println!();
                 println!("The password has been stored as plain-text though: {text}");
             }
         }
