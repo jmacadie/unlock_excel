@@ -45,27 +45,27 @@ pub fn decode<D: AsRef<[u8]>>(data: D) -> Result<(Salt, Hash), error::PasswordHa
     // Add nulls to salt
     let mut grbitkey = data[1];
     for (i, byte) in salt.iter_mut().enumerate() {
-        if grbitkey & 1 == 0 {
+        if grbitkey & 0x80 == 0 {
             if *byte != 0x01 {
                 return Err(error::PasswordHash::SaltNull(salt, i));
             }
             *byte = 0;
         }
-        grbitkey >>= 1;
+        grbitkey <<= 1;
     }
 
     // Add nulls to hash
-    let mut grbithashnull = u32::from(data[1]) >> 4;
-    grbithashnull |= u32::from(data[2]) << 4;
-    grbithashnull |= u32::from(data[3]) << 12;
+    let mut grbithashnull = (u32::from(data[1]) & 0x0f) << 16;
+    grbithashnull |= u32::from(data[2]) << 8;
+    grbithashnull |= u32::from(data[3]);
     for (i, byte) in hash.iter_mut().enumerate() {
-        if grbithashnull & 1 == 0 {
+        if grbithashnull & 0x0008_0000 == 0 {
             if *byte != 0x01 {
                 return Err(error::PasswordHash::HashNull(hash, i));
             }
             *byte = 0;
         }
-        grbithashnull >>= 1;
+        grbithashnull <<= 1;
     }
 
     Ok((salt, hash))
@@ -94,7 +94,7 @@ fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Vec<u8>, error::Passwor
 
     let mut grbitkey = 0;
     let mut nulled_salt = Salt::default();
-    for (i, b) in nulled_salt.iter_mut().enumerate().rev() {
+    for (i, b) in nulled_salt.iter_mut().enumerate() {
         grbitkey <<= 1;
         match salt.as_ref().get(i) {
             Some(0x00) => {
@@ -112,7 +112,7 @@ fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Vec<u8>, error::Passwor
 
     let mut grbithashnull: u32 = 0;
     let mut nulled_hash = Hash::default();
-    for (i, b) in nulled_hash.iter_mut().enumerate().rev() {
+    for (i, b) in nulled_hash.iter_mut().enumerate() {
         grbithashnull <<= 1;
         match hash.get(i) {
             Some(0x00) => {
@@ -128,11 +128,11 @@ fn encode<S: AsRef<[u8]>>(salt: S, hash: Hash) -> Result<Vec<u8>, error::Passwor
         }
     }
 
-    let grbit = (((grbithashnull & 0x0f) as u8) << 4) | grbitkey;
+    let grbit = (grbitkey << 4) | ((grbithashnull & 0x000f_0000) >> 16) as u8;
     output.push(grbit);
-    let grbit = ((grbithashnull & 0xff0) >> 4) as u8;
+    let grbit = ((grbithashnull & 0xff00) >> 8) as u8;
     output.push(grbit);
-    let grbit = ((grbithashnull & 0xff000) >> 12) as u8;
+    let grbit = (grbithashnull & 0xff) as u8;
     output.push(grbit);
 
     output.extend_from_slice(&nulled_salt);
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn bad_salt_null() {
         let reserved = [0xff];
-        let grbits = [0b1111_1101, 0b1111_1111, 0b1111_1111];
+        let grbits = [0b1101_1111, 0b1111_1111, 0b1111_1111];
         let salt = [0x12, 0x34, 0x56, 0x78];
         let hash = [
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
@@ -278,13 +278,13 @@ mod tests {
         data.extend_from_slice(&hash);
         data.extend_from_slice(&terminator);
 
-        assert_eq!(Err(error::PasswordHash::SaltNull(salt, 1)), decode(&data));
+        assert_eq!(Err(error::PasswordHash::SaltNull(salt, 2)), decode(&data));
     }
 
     #[test]
     fn bad_hash_null() {
         let reserved = [0xff];
-        let grbits = [0b1011_1111, 0b1111_1111, 0b1111_1111];
+        let grbits = [0b1111_1101, 0b1111_1111, 0b1111_1111];
         let salt = [0x12, 0x34, 0x56, 0x78];
         let hash = [
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
@@ -300,7 +300,7 @@ mod tests {
         data.extend_from_slice(&terminator);
         assert_eq!(Err(error::PasswordHash::HashNull(hash, 2)), decode(&data));
 
-        let grbits = [0b1111_1111, 0b1111_1011, 0b1111_1111];
+        let grbits = [0b1111_1111, 0b1101_1111, 0b1111_1111];
         data.clear();
         data.extend_from_slice(&reserved);
         data.extend_from_slice(&grbits);
@@ -309,7 +309,7 @@ mod tests {
         data.extend_from_slice(&terminator);
         assert_eq!(Err(error::PasswordHash::HashNull(hash, 6)), decode(&data));
 
-        let grbits = [0b1111_1111, 0b1111_1111, 0b0111_1111];
+        let grbits = [0b1111_1111, 0b1111_1111, 0b1111_1110];
         data.clear();
         data.extend_from_slice(&reserved);
         data.extend_from_slice(&grbits);
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn ok_with_null() {
         let reserved = [0xff];
-        let grbits = [0b1111_1011, 0b0111_1111, 0b1111_1111];
+        let grbits = [0b1101_1111, 0b1111_1110, 0b1111_1111];
         let mut salt = [0x12, 0x34, 0x01, 0x78];
         let mut hash = [
             0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0x01, 0xdd, 0xee,
